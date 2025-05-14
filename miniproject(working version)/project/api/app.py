@@ -15,23 +15,29 @@ load_dotenv()
 
 # Configure Gemini AI
 genai.configure(api_key=os.getenv('GOOGLE_API_KEY'))
-model = genai.GenerativeModel('gemini-pro')
+model = genai.GenerativeModel('gemini-2.0-flash')
 
 app = Flask(__name__)
 CORS(app)
 
 # MongoDB connection
 mongo_uri = os.getenv('MONGODB_URI')
+client = None  # Initialize client outside the try block
+db = None
+customers = None
+
 try:
     client = MongoClient(mongo_uri)
     db = client['homebiz_insight']
     customers = db['customers']
-    print("Connected to MongoDB successfully!")  # Add this line
+    print("Connected to MongoDB successfully!")
 except Exception as e:
     print(f"Error connecting to MongoDB: {e}")
-    #  Handle the error appropriately, e.g., exit the application or set a flag
-    db = None  # Or some other default value
-    customers = None
+    # Handle the error appropriately, e.g., exit the application or set a flag
+    #  Important:  Don't proceed if the database connection fails.
+    #  sys.exit(1)
+    pass  #  Allow the app to start, but database operations will fail.  You MUST handle this in your routes.
+
 
 # Define file paths
 DATA_FILE = 'api/data/dataset.csv'
@@ -44,8 +50,8 @@ scaler = None
 
 def load_model_and_scaler():
     """
-    Loads the pre-trained model and scaler.  This function is called when the
-    Flask application starts.  It handles the case where the model file
+    Loads the pre-trained model and scaler. This function is called when the
+    Flask application starts. It handles the case where the model file
     might not exist yet (i.e., if it needs to be trained first).
     """
     global churn_model, scaler  # Use the global variables
@@ -73,6 +79,7 @@ def load_model_and_scaler():
         print(f"Error loading model: {e}")
         churn_model = None
         scaler = None
+
 
 
 # Function to predict churn
@@ -103,49 +110,52 @@ def predict_churn(customer_data, model, scaler):
         return 'N/A'
 
 
+
 @app.route('/chat', methods=['POST'])
 def chat():
     try:
         data = request.json
         user_message = data['message']
+        
+        print(f"Received message: {user_message}")  # Debug logging
 
-        # Get customer context if available
-        customer_context = ""
-        if 'customerId' in data:
-            customer = customers.find_one({'id': data['customerId']})
-            if customer:
-                customer_context = f"""
-                    Customer Details:
-                    - Name: {customer['name']}
-                    - Email: {customer['email']}
-                    - Tenure: {customer['tenure']} days
-                    - Average Order Value: ${customer['avgOrderValue']}
-                    - Total Spent: ${customer['totalSpent']}
-                    - Loyalty Tier: {customer['loyaltyTier']}
-                    - Churn Risk: {customer['churnRisk']}
-                    """
-
-        # Prepare prompt with business context
+        # Prepare prompt
         prompt = f"""
-        You are a business analytics AI assistant. Use this customer data to provide insights:
-        {customer_context}
-
+        You are a helpful business assistant. Provide concise and helpful responses to user questions.
+        
         User Question: {user_message}
         """
 
         # Generate response using Gemini
         response = model.generate_content(prompt)
+        
+        # Debug the full response
+        print("Full Gemini response:", response)
+        
+        # Extract text safely
+        if hasattr(response, 'text'):
+            ai_response = response.text
+        else:
+            ai_response = "Sorry, I couldn't process that request."
+            print("Unexpected response format:", response)
 
         return jsonify({
-            'response': response.text
+            'response': ai_response
         })
 
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"Error in chat endpoint: {str(e)}")
+        return jsonify({
+            'error': 'Failed to process chat message',
+            'details': str(e)
+        }), 500
+
 
 
 @app.route('/customers', methods=['GET'])
 def get_customers():
+    if db is None:
+        return jsonify({'error': 'Database connection failed'}), 500
     try:
         customer_list = list(customers.find({}, {'_id': False}))
         return jsonify(customer_list)
@@ -153,14 +163,17 @@ def get_customers():
         return jsonify({'error': str(e)}), 500
 
 
+
 @app.route('/customers', methods=['POST'])
 def add_customer():
+    if db is None:
+        return jsonify({'error': 'Database connection failed'}), 500
     try:
         customer_data = request.json
         print("Received customer data:", customer_data)  # Debugging line
 
         # Check if the required keys are present
-        required_keys = ['tenure', 'avgOrderValue', 'totalSpent']
+        required_keys = ['tenure', 'avgOrderValue', 'totalSpent', 'name', 'email', 'id', 'lastOrder', 'loyaltyTier']
         if not all(key in customer_data for key in required_keys):
             error_message = f"Missing required keys in customer data.  Expected: {required_keys}, Got: {list(customer_data.keys())}"
             print(error_message)  # Log the error
@@ -190,8 +203,11 @@ def add_customer():
         return jsonify({'error': str(e)}), 500
 
 
+
 @app.route('/predict', methods=['POST'])
 def predict():
+    if db is None:
+        return jsonify({'error': 'Database connection failed'}), 500
     try:
         data = request.json
 
@@ -229,8 +245,11 @@ def predict():
         return jsonify({'error': str(e)}), 500
 
 
+
 @app.route('/orders', methods=['GET'])
 def get_orders():
+    if db is None:
+        return jsonify({'error': 'Database connection failed'}), 500
     try:
         orders = list(db['orders'].find({}, {'_id': False}))
         return jsonify(orders)
@@ -238,8 +257,11 @@ def get_orders():
         return jsonify({'error': str(e)}), 500
 
 
+
 @app.route('/import-dataset', methods=['POST'])
 def import_dataset():
+    if db is None:
+        return jsonify({'error': 'Database connection failed'}), 500
     try:
         # Read dataset
         df = pd.read_csv('api/data/dataset.csv')
@@ -255,6 +277,7 @@ def import_dataset():
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
 
 
 if __name__ == '__main__':
