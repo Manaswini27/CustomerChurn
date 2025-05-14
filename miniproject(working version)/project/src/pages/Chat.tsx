@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import ChatInterface from '../components/chat/ChatInterface';
 import { mockChatMessages } from '../data/mockData';
 import { ChatMessage } from '../types';
@@ -6,8 +6,14 @@ import { v4 as uuidv4 } from 'uuid';
 import { api } from '../services/api';
 
 const Chat: React.FC = () => {
-  const [messages, setMessages] = useState<ChatMessage[]>(mockChatMessages);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+   // Auto-scroll to bottom when messages change
+   useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
   
   const handleSendMessage = async (text: string) => {
     const newUserMessage: ChatMessage = {

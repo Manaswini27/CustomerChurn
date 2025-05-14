@@ -11,7 +11,9 @@ export const api = {
 
   addCustomer: async (customer: Customer) => {
     const response = await axios.post(`${API_BASE_URL}/customers`, customer);
-    return response.data;
+    const responseData = await axios.get(`${API_BASE_URL}/customers`);
+    console.log('Customer added:', customer);////here we were sending a message that said added successfully not the customer data intitally then we changed it to the customer data
+    return responseData.data;
   },
 
   predictChurn: async (customerId: string, features: any) => {
@@ -27,11 +29,17 @@ export const api = {
     return response.data;
   },
 
-  sendChatMessage: async (message: string, customerId?: string) => {
-    const response = await axios.post(`${API_BASE_URL}/chat`, {
-      message,
-      customerId
-    });
-    return response.data;
+  sendChatMessage: async (message: string) => {
+    try {
+      const response = await axios.post(`${API_BASE_URL}/chat`, { 
+        message 
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Chat error:', error);
+      return { 
+        response: "Sorry, the chatbot isn't working right now. Please try again later." 
   }
+}
+}
 };
